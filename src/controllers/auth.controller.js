@@ -17,8 +17,39 @@ async function register(req, res) {
         email,
         password: hashedPassword
     });
-    const token = jwt.sign({ id: user._id }, config.JWT_SECRET, { expiresIn: "9d" });
-    return res.status(201).json({ message: "User registered successfully", user: { username, email }, token });
+    const accesstoken = jwt.sign({ id: user._id }, config.JWT_SECRET, { expiresIn: "15m" });
+    const refreshtoken = jwt.sign({ id: user._id }, config.JWT_SECRET, { expiresIn: "7d" });
+    res.cookie("refreshtoken", refreshtoken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    return res.status(201).json({ message: "User registered successfully", user: { username, email }, accesstoken });
+}
+
+async function getRefreshToken(req,res){
+    const refreshToken = req.cookies.refreshtoken;
+    if(!refreshToken){
+        return res.status(401).json({ message: "Unauthorized" });
+    }
+    let decodedToken;
+    try {
+        decodedToken = jwt.verify(refreshToken, config.JWT_SECRET);
+    } catch (error) {
+        return res.status(401).json({ message: "Invalid or expired token" });
+    }
+    const user = await userModel.findById(decodedToken.id);
+    if(!user){
+        return res.status(404).json({ message: "User not found" });
+    }
+    const newAccessToken = jwt.sign({ id: user._id }, config.JWT_SECRET, { expiresIn: "15m" });
+    const newRefreshToken = jwt.sign({ id: user._id }, config.JWT_SECRET, { expiresIn: "7d" });
+    res.cookie("refreshtoken", newRefreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    return res.status(200).json({ message: "Token refreshed successfully", accesstoken: newAccessToken });
 }
 
 async function getMe(req, res) {
@@ -39,4 +70,4 @@ async function getMe(req, res) {
     return res.status(200).json({ user: { username: user.username, email: user.email, createdAt: user.createdAt }, message: "User found" });
 }
 
-export { register, getMe };
+export { register, getMe ,getRefreshToken};
